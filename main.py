@@ -1,222 +1,651 @@
 import cv2
 import mediapipe as mp
+import time
+from collections import deque
 
-# Initialize MediaPipe Hands
+# ============================================================
+# MEDIAPIPE SETUP
+# ============================================================
+
 mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 mp_draw = mp.solutions.drawing_utils
 
-# Define colors for drawing
-line_spec = mp_draw.DrawingSpec(color=(0, 255, 0), thickness=2)  # Green for lines
-dot_spec = mp_draw.DrawingSpec(color=(0, 0, 255), thickness=2)  # Red for dots
+hands = mp_hands.Hands(
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5
+)
 
-# Start video capture
-cap = cv2.VideoCapture(1)
+# Camera
+cap = cv2.VideoCapture(0)
+
+if not cap.isOpened():
+    print("ERROR: Could not open camera.")
+    exit()
+
+# ============================================================
+# COLORS
+# ============================================================
+
+BG = (18, 20, 28)
+PANEL = (28, 31, 42)
+PANEL_2 = (35, 38, 52)
+
+WHITE = (245, 245, 245)
+LIGHT = (180, 185, 200)
+GREEN = (80, 220, 150)
+CYAN = (80, 210, 255)
+PURPLE = (170, 120, 255)
+RED = (90, 90, 255)
+
+# ============================================================
+# GESTURES
+# ============================================================
+
+GESTURES = [
+    "LIKE",
+    "DISLIKE",
+    "OK",
+    "PEACE",
+    "CALL ME",
+    "STOP",
+    "FORWARD",
+    "LEFT",
+    "RIGHT",
+    "I LOVE YOU"
+]
 
 finger_tips = [8, 12, 16, 20]
 thumb_tip = 4
 
-if not cap.isOpened():
-    print("Error: Could not open camera.")
-    exit()
+current_gesture = "NO GESTURE"
+history = deque(maxlen=5)
 
-print("Camera started successfully!")
+last_gesture = ""
+last_detection_time = 0
+
+# ============================================================
+# FPS
+# ============================================================
+
+prev_time = 0
+
+
+# ============================================================
+# UI FUNCTIONS
+# ============================================================
+
+def rounded_box(img, x1, y1, x2, y2, color, radius=18):
+    cv2.rectangle(
+        img,
+        (x1 + radius, y1),
+        (x2 - radius, y2),
+        color,
+        -1
+    )
+
+    cv2.rectangle(
+        img,
+        (x1, y1 + radius),
+        (x2, y2 - radius),
+        color,
+        -1
+    )
+
+    cv2.circle(img, (x1 + radius, y1 + radius), radius, color, -1)
+    cv2.circle(img, (x2 - radius, y1 + radius), radius, color, -1)
+    cv2.circle(img, (x1 + radius, y2 - radius), radius, color, -1)
+    cv2.circle(img, (x2 - radius, y2 - radius), radius, color, -1)
+
+
+def text(img, value, position, size=0.6, color=WHITE, thickness=1):
+    cv2.putText(
+        img,
+        value,
+        position,
+        cv2.FONT_HERSHEY_SIMPLEX,
+        size,
+        color,
+        thickness,
+        cv2.LINE_AA
+    )
+
+
+def add_detection(gesture):
+    global last_gesture, last_detection_time
+
+    now = time.time()
+
+    # Avoid adding the same gesture every frame
+    if gesture != last_gesture or now - last_detection_time > 1.5:
+        history.appendleft(
+            time.strftime("%H:%M:%S") + "   " + gesture
+        )
+
+        last_gesture = gesture
+        last_detection_time = now
+
+
+# ============================================================
+# MAIN LOOP
+# ============================================================
 
 while True:
-    ret, frame = cap.read()
-    frame = cv2.flip(frame, 1)
-    # frame = cv2.resize(frame, (640, 480))  # Resize to match the webcam resolution
 
-    h, w, c = frame.shape
+    ret, frame = cap.read()
+
     if not ret:
-        print("Failed to capture frame")
+        print("Failed to capture frame.")
         break
 
-    # Convert BGR to RGB for MediaPipe
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    frame = cv2.flip(frame, 1)
 
-    # Process the frame and get hand landmarks
-    results = hands.process(rgb_frame)
+    # Resize camera
+    frame = cv2.resize(frame, (960, 540))
+
+    h, w, _ = frame.shape
+
+    # FPS
+    current_time = time.time()
+
+    if prev_time != 0:
+        fps = 1 / (current_time - prev_time)
+    else:
+        fps = 0
+
+    prev_time = current_time
+
+    # --------------------------------------------------------
+    # MEDIAPIPE
+    # --------------------------------------------------------
+
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    results = hands.process(rgb)
+
+    detected_gesture = "NO GESTURE"
+    hand_count = 0
+
+    # --------------------------------------------------------
+    # GESTURE DETECTION
+    # --------------------------------------------------------
 
     if results.multi_hand_landmarks:
-        for hand_no, hand_landmarks in enumerate(results.multi_hand_landmarks):
-            print(f"Hand {hand_no + 1} Landmarks:")
-            lm_list = []  # List to store landmark positions
+
+        hand_count = len(results.multi_hand_landmarks)
+
+        for hand_landmarks in results.multi_hand_landmarks:
+
+            lm_list = []
+
+            for lm in hand_landmarks.landmark:
+                lm_list.append(lm)
+
             finger_fold_status = []
 
-            for i, lm in enumerate(hand_landmarks.landmark):
-                lm_list.append(lm)  # Append each landmark to the list
-
             for tip in finger_tips:
-                x = int(lm_list[tip].x * w)  # Store x-coordinate
-                y = int(lm_list[tip].y * h)  # Store y-coordinate
 
-                # print(f"  Landmark {tip}: x={x}, y={y}") # Print coordinates
-
-                # Draw a circle at the fingertip position
-                # cv2.circle(frame, (x, y), 12, (255, 213, 63), cv2.FILLED)
-
-                # change the color of the fingertip if the finger is folded
-                # if the fingertip's x is smaller than the finger's base x, that finger is folded
                 if lm_list[tip].x < lm_list[tip - 3].x:
-
-                    # change the color of the fingertip indicator to differentiate the folded state
-                    # cv2.circle(frame, (x, y), 12, (0, 0, 0), cv2.FILLED)
                     finger_fold_status.append(True)
-
                 else:
                     finger_fold_status.append(False)
 
-            print(finger_fold_status)
-
-            # *************** LIKE (Thumbs-up) 👍 ***************
-            # if the thumb is positioned upwards
-            # the thumb tip should be above its previous joints
-            # that is the thumb tip's y must be lower than its previous joint's y values
-
-            if lm_list[thumb_tip].y < lm_list[thumb_tip - 1].y < lm_list[thumb_tip - 2].y:
-
-                # Verify if all other fingers are folded (indicating a thumbs-up gesture)
+            # LIKE
+            if (
+                lm_list[thumb_tip].y <
+                lm_list[thumb_tip - 1].y <
+                lm_list[thumb_tip - 2].y
+            ):
                 if all(finger_fold_status):
-                    print("LIKE👍 gesture detected")
-                    cv2.putText(frame, "LIKE", (100, 120), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 0), 2)
+                    detected_gesture = "LIKE"
 
-
-            # *************** DISLIKE (Thumbs-down)👎 ***************
-            # if the thumb is positioned downwards
-            # the thumb tip must be below its previous joints
-            # that is the thumb tip's y must be greater than its previous joint's y values
-
-            if lm_list[thumb_tip].y > lm_list[thumb_tip - 1].y > lm_list[thumb_tip - 2].y:
+            # DISLIKE
+            if (
+                lm_list[thumb_tip].y >
+                lm_list[thumb_tip - 1].y >
+                lm_list[thumb_tip - 2].y
+            ):
                 if all(finger_fold_status):
-                    print("DISLIKE👎 gesture detected")
-                    cv2.putText(frame, "DISLIKE", (100, 120), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 0), 2)
+                    detected_gesture = "DISLIKE"
 
+            # OK
+            thumb_x = lm_list[thumb_tip].x
+            thumb_y = lm_list[thumb_tip].y
 
-            # ************************ OK 👌 ************************
-            # check if thumb tip and index tip are close
-            thumb_x, thumb_y = lm_list[thumb_tip].x, lm_list[thumb_tip].y
-            index_x, index_y = lm_list[8].x, lm_list[8].y  # Index finger tip
+            index_x = lm_list[8].x
+            index_y = lm_list[8].y
 
-            distance = ((thumb_x - index_x) ** 2 + (thumb_y - index_y) ** 2) ** 0.5
+            distance = (
+                (thumb_x - index_x) ** 2 +
+                (thumb_y - index_y) ** 2
+            ) ** 0.5
 
-            if distance < 0.05:  # Small threshold to detect touch
+            if distance < 0.05:
+                if (
+                    not finger_fold_status[1]
+                    and not finger_fold_status[2]
+                    and not finger_fold_status[3]
+                ):
+                    detected_gesture = "OK"
 
-                # Check if the other three fingers are extended (not folded)
-                if not finger_fold_status[1] and not finger_fold_status[2] and not finger_fold_status[3]:
-                    print("OK👌 gesture detected")
-                    cv2.putText(frame, "OK", (100, 120), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 0), 2)
+            # PEACE
+            ring_x = lm_list[16].x
+            ring_y = lm_list[16].y
 
+            pinky_x = lm_list[20].x
+            pinky_y = lm_list[20].y
 
-            # *********************** PEACE ✌️ ***********************
-            # check if thumb, ring, and pinky are close (using distance calculation)
-            thumb_x, thumb_y = lm_list[thumb_tip].x, lm_list[thumb_tip].y
-            ring_x, ring_y = lm_list[16].x, lm_list[16].y  # Ring fingertip
-            pinky_x, pinky_y = lm_list[20].x, lm_list[20].y  # Pinky fingertip
+            distance_thumb_ring = (
+                (thumb_x - ring_x) ** 2 +
+                (thumb_y - ring_y) ** 2
+            ) ** 0.5
 
-            # calculate the distance between thumb, ring, and pinky tips
-            distance_thumb_ring = ((thumb_x - ring_x) ** 2 + (thumb_y - ring_y) ** 2) ** 0.5
-            distance_ring_pinky = ((ring_x - pinky_x) ** 2 + (ring_y - pinky_y) ** 2) ** 0.5
+            distance_ring_pinky = (
+                (ring_x - pinky_x) ** 2 +
+                (ring_y - pinky_y) ** 2
+            ) ** 0.5
 
-            if distance_thumb_ring < 0.05 and distance_ring_pinky < 0.05:  # check if the fingers are close
-                # check if the index and middle fingers are extended (not folded)
-                if not finger_fold_status[0] and not finger_fold_status[1]:  # index and middle fingers
-                    print("PEACE✌️ gesture detected")
-                    cv2.putText(frame, "PEACE", (100, 120), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 0), 2)
+            if (
+                distance_thumb_ring < 0.05
+                and distance_ring_pinky < 0.05
+            ):
+                if (
+                    not finger_fold_status[0]
+                    and not finger_fold_status[1]
+                ):
+                    detected_gesture = "PEACE"
 
+            # CALL ME
+            if (
+                finger_fold_status[0]
+                and finger_fold_status[1]
+                and finger_fold_status[3]
+            ):
 
-            # *********************** CALL ME 🤙 ***********************
-            # check if middle, index, and pinky fingers are folded (their fold status is True)
-            if finger_fold_status[0] and finger_fold_status[1] and finger_fold_status[3]:  # index, middle, pinky folded
+                distance_thumb_pinky = (
+                    (thumb_x - pinky_x) ** 2 +
+                    (thumb_y - pinky_y) ** 2
+                ) ** 0.5
 
-                # check if the thumb and pinky are extended and far apart
-                thumb_x, thumb_y = lm_list[thumb_tip].x, lm_list[thumb_tip].y
-                pinky_x, pinky_y = lm_list[20].x, lm_list[20].y  # pinky finger tip
-
-                # calculate distance between thumb and pinky
-                distance_thumb_pinky = ((thumb_x - pinky_x) ** 2 + (thumb_y - pinky_y) ** 2) ** 0.5
-
-                # if the distance between the thumb and pinky is high
                 if distance_thumb_pinky > 0.4:
-                    print("Call ME🤙 gesture detected")
-                    cv2.putText(frame, "CALL ME", (100, 120), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 0), 2)
+                    detected_gesture = "CALL ME"
 
+            # STOP
+            if (
+                lm_list[thumb_tip].y <
+                lm_list[thumb_tip - 1].y <
+                lm_list[thumb_tip - 2].y
+                and
+                lm_list[8].y <
+                lm_list[6].y <
+                lm_list[5].y
+                and
+                lm_list[12].y <
+                lm_list[10].y <
+                lm_list[9].y
+                and
+                lm_list[16].y <
+                lm_list[14].y <
+                lm_list[13].y
+                and
+                lm_list[20].y <
+                lm_list[18].y <
+                lm_list[17].y
+            ):
+                detected_gesture = "STOP"
 
-            # *********************** Stop ✋ ***********************
-            # check if all fingers are extended (upward)
-            if lm_list[thumb_tip].y < lm_list[thumb_tip - 1].y < lm_list[thumb_tip - 2].y and \
-                    lm_list[8].y < lm_list[6].y < lm_list[5].y and \
-                    lm_list[12].y < lm_list[10].y < lm_list[9].y and \
-                    lm_list[16].y < lm_list[14].y < lm_list[13].y and \
-                    lm_list[20].y < lm_list[18].y < lm_list[17].y:
-                print("Stop✋ gesture detected")
-                cv2.putText(frame, "STOP", (100, 120), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 0), 2)
+            # FORWARD
+            if (
+                lm_list[8].y <
+                lm_list[6].y <
+                lm_list[5].y
+                and
+                lm_list[12].y >
+                lm_list[11].y >
+                lm_list[10].y
+                and
+                lm_list[16].y >
+                lm_list[15].y >
+                lm_list[14].y
+                and
+                lm_list[20].y >
+                lm_list[19].y >
+                lm_list[18].y
+                and
+                lm_list[thumb_tip].x >
+                lm_list[thumb_tip - 1].x
+            ):
+                detected_gesture = "FORWARD"
 
-            # *********************** FORWARD 👆 ***********************
-            # check if index finger is extended upward (8.y < 6.y)
-            # check if all 3 middle, ring and pinky fingers are folded
-            # check if the thumb finger is folded (4.x < 3.x)
-            if lm_list[8].y < lm_list[6].y < lm_list[5].y and \
-                lm_list[12].y > lm_list[11].y > lm_list[10].y and \
-                lm_list[16].y > lm_list[15].y > lm_list[14].y and \
-                lm_list[20].y > lm_list[19].y > lm_list[18].y and \
-                lm_list[thumb_tip].x > lm_list[thumb_tip - 1].x:
-                print("FORWARD👆 gesture detected")
-                cv2.putText(frame, "FORWARD", (100, 120), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 0), 2)
+            # LEFT
+            if (
+                lm_list[4].y < lm_list[2].y
+                and
+                lm_list[8].x < lm_list[6].x
+                and
+                lm_list[12].x > lm_list[10].x
+                and
+                lm_list[16].x > lm_list[14].x
+                and
+                lm_list[20].x > lm_list[18].x
+                and
+                lm_list[5].x < lm_list[0].x
+            ):
+                detected_gesture = "LEFT"
 
+            # RIGHT
+            if (
+                lm_list[4].y < lm_list[2].y
+                and
+                lm_list[8].x > lm_list[6].x
+                and
+                lm_list[12].x < lm_list[10].x
+                and
+                lm_list[16].x < lm_list[14].x
+                and
+                lm_list[20].x < lm_list[18].x
+            ):
+                detected_gesture = "RIGHT"
 
-            # *********************** LEFT 👈 ***********************
-            # check if thumb is raised upwards (4.y < 2.y)
-            # check if all 3 middle, ring and pinky finger's x coordinates
-            # all 3 fingertips' x > finger's other two joints' x
-            # check if index finger's base 5.x < wrist 0.x
-            if lm_list[4].y < lm_list[2].y and \
-                    lm_list[8].x < lm_list[6].x and \
-                    lm_list[12].x > lm_list[10].x and \
-                    lm_list[16].x > lm_list[14].x and \
-                    lm_list[20].x > lm_list[18].x and \
-                    lm_list[5].x < lm_list[0].x:
-                print("LEFT👈 gesture detected")
-                cv2.putText(frame, "LEFT", (100, 120), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 0), 2)
+            # I LOVE YOU
+            if (
+                lm_list[8].y <
+                lm_list[6].y <
+                lm_list[5].y
+                and
+                lm_list[12].y >
+                lm_list[11].y >
+                lm_list[10].y
+                and
+                lm_list[16].y >
+                lm_list[15].y >
+                lm_list[14].y
+                and
+                lm_list[20].y <
+                lm_list[19].y <
+                lm_list[18].y
+                and
+                lm_list[thumb_tip].x >
+                lm_list[thumb_tip - 1].x
+            ):
+                detected_gesture = "I LOVE YOU"
 
-
-            # *********************** RIGHT 👉 ***********************
-            if lm_list[4].y < lm_list[2].y and \
-                    lm_list[8].x > lm_list[6].x and \
-                    lm_list[12].x < lm_list[10].x and \
-                    lm_list[16].x < lm_list[14].x and \
-                    lm_list[20].x < lm_list[18].x:
-                print("RIGHT👉 gesture detected")
-                cv2.putText(frame, "RIGHT", (100, 120), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 0), 2)
-
-
-            # *********************** I LOVE YOU 🤟 ***********************
-            # check if the index finger is raised upwards (8.y < 6.y)
-            # check if the thumb is extended (4.x > 3.x)
-            # check if the pinky finger is raised upwards (20.y < 19.y)
-            # check if middle and ring fingers are folded
-            if lm_list[8].y < lm_list[6].y < lm_list[5].y and \
-                    lm_list[12].y > lm_list[11].y > lm_list[10].y and \
-                    lm_list[16].y > lm_list[15].y > lm_list[14].y and \
-                    lm_list[20].y < lm_list[19].y < lm_list[18].y and \
-                    lm_list[thumb_tip].x > lm_list[thumb_tip - 1].x:
-                print("I love you🤟 gesture detected")
-                cv2.putText(frame, "I LOVE YOU", (100, 120), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 0), 2)
-
-                # draw hand landmarks on the frame with red dots and green lines
+            # Draw landmarks
             mp_draw.draw_landmarks(
-                frame, hand_landmarks, mp_hands.HAND_CONNECTIONS,
-                dot_spec, line_spec
+                frame,
+                hand_landmarks,
+                mp_hands.HAND_CONNECTIONS
             )
 
-    # Show the output frame
-    cv2.imshow("Hand Tracking", frame)
+    current_gesture = detected_gesture
 
-    # Exit on pressing 'q'
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        print("Exiting...")
+    if detected_gesture != "NO GESTURE":
+        add_detection(detected_gesture)
+
+    # ========================================================
+    # CREATE DASHBOARD
+    # ========================================================
+
+    dashboard_width = 1380
+    dashboard_height = 760
+
+    canvas = cv2.resize(
+        frame,
+        (960, 540)
+    )
+
+    dashboard = cv2.imread(
+        "/dev/null"
+    ) if False else None
+
+    dashboard = __import__("numpy").zeros(
+        (dashboard_height, dashboard_width, 3),
+        dtype="uint8"
+    )
+
+    dashboard[:] = BG
+
+    # ========================================================
+    # HEADER
+    # ========================================================
+
+    text(
+        dashboard,
+        "SIGNVISION",
+        (45, 55),
+        1.1,
+        WHITE,
+        2
+    )
+
+    text(
+        dashboard,
+        "REAL-TIME HAND GESTURE RECOGNITION",
+        (45, 85),
+        0.45,
+        LIGHT
+    )
+
+    # Camera status
+    cv2.circle(
+        dashboard,
+        (1210, 48),
+        7,
+        GREEN,
+        -1
+    )
+
+    text(
+        dashboard,
+        "CAMERA ACTIVE",
+        (1230, 54),
+        0.45,
+        GREEN,
+        1
+    )
+
+    # Header line
+    cv2.line(
+        dashboard,
+        (35, 110),
+        (1345, 110),
+        (55, 58, 75),
+        1
+    )
+
+    # ========================================================
+    # CAMERA PANEL
+    # ========================================================
+
+    rounded_box(
+        dashboard,
+        35, 135,
+        980, 650,
+        PANEL,
+        20
+    )
+
+    # Camera image
+    camera = cv2.resize(canvas, (920, 518))
+
+    dashboard[
+        155:673,
+        55:975
+    ] = camera
+
+    # Camera label
+    text(
+        dashboard,
+        "LIVE CAMERA",
+        (70, 150),
+        0.45,
+        CYAN,
+        1
+    )
+
+    # ========================================================
+    # RIGHT PANEL
+    # ========================================================
+
+    rounded_box(
+        dashboard,
+        1035, 135,
+        1345, 330,
+        PANEL,
+        20
+    )
+
+    text(
+        dashboard,
+        "CURRENT GESTURE",
+        (1060, 170),
+        0.45,
+        LIGHT
+    )
+
+    # Gesture
+    gesture_display = current_gesture
+
+    gesture_size = 0.9
+
+    if gesture_display == "NO GESTURE":
+        gesture_color = LIGHT
+    else:
+        gesture_color = GREEN
+
+    text(
+        dashboard,
+        gesture_display,
+        (1060, 220),
+        gesture_size,
+        gesture_color,
+        2
+    )
+
+    # Detection status
+    cv2.circle(
+        dashboard,
+        (1065, 265),
+        6,
+        GREEN if hand_count else RED,
+        -1
+    )
+
+    text(
+        dashboard,
+        "HAND DETECTED" if hand_count else "NO HAND",
+        (1080, 270),
+        0.5,
+        WHITE
+    )
+
+    # FPS
+    text(
+        dashboard,
+        f"FPS     {fps:.1f}",
+        (1060, 310),
+        0.45,
+        LIGHT
+    )
+
+    text(
+        dashboard,
+        f"HANDS   {hand_count}",
+        (1190, 310),
+        0.45,
+        LIGHT
+    )
+
+    # ========================================================
+    # HISTORY PANEL
+    # ========================================================
+
+    rounded_box(
+        dashboard,
+        1035, 350,
+        1345, 650,
+        PANEL,
+        20
+    )
+
+    text(
+        dashboard,
+        "DETECTION HISTORY",
+        (1060, 385),
+        0.45,
+        LIGHT
+    )
+
+    y = 425
+
+    if len(history) == 0:
+
+        text(
+            dashboard,
+            "Waiting for gesture...",
+            (1060, y),
+            0.45,
+            LIGHT
+        )
+
+    else:
+
+        for item in history:
+
+            text(
+                dashboard,
+                item,
+                (1060, y),
+                0.43,
+                WHITE
+            )
+
+            y += 42
+
+    # ========================================================
+    # SUPPORTED GESTURES
+    # ========================================================
+
+    text(
+        dashboard,
+        "SUPPORTED",
+        (65, 710),
+        0.4,
+        LIGHT
+    )
+
+    supported_text = (
+        "LIKE   DISLIKE   OK   PEACE   CALL ME   STOP   "
+        "FORWARD   LEFT   RIGHT   I LOVE YOU"
+    )
+
+    text(
+        dashboard,
+        supported_text,
+        (65, 735),
+        0.38,
+        WHITE
+    )
+
+    # ========================================================
+    # SHOW
+    # ========================================================
+
+    cv2.imshow(
+        "SIGNVISION - Hand Gesture Recognition",
+        dashboard
+    )
+
+    key = cv2.waitKey(1) & 0xFF
+
+    if key == ord("q"):
         break
+
+# ============================================================
+# CLEANUP
+# ============================================================
 
 cap.release()
 cv2.destroyAllWindows()
-print("Camera released and windows closed.")
+hands.close()
+
+print("SIGNVISION closed successfully.")
