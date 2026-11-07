@@ -1,0 +1,269 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Dashboard | HandSpeak</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='script.js') }}" defer></script>
+</head>
+
+<body class="dashboard-page">
+
+    <div class="dashboard-shell">
+
+        <!-- SIDEBAR -->
+        <aside class="sidebar">
+
+            <div class="brand">
+                <span class="brand-icon">✦</span>
+                HandSpeak
+            </div>
+
+            <p class="side-label">WORKSPACE</p>
+
+            <a href="{{ url_for('dashboard') }}" class="side-link active">
+                <span aria-hidden="true">▦</span>
+                Dashboard
+            </a>
+
+            <a href="#history" class="side-link">
+                <span aria-hidden="true">◷</span>
+                History
+            </a>
+
+            <div class="sidebar-bottom">
+
+                <div class="profile">
+                    <div class="avatar">
+                        {{ (name|default('H', true))[0]|upper }}
+                    </div>
+
+                    <div>
+                        <strong>{{ name }}</strong>
+                        <small>HandSpeak member</small>
+                    </div>
+                </div>
+
+                <form action="{{ url_for('logout') }}" method="POST">
+                    <button class="logout-button" type="submit">
+                        <span aria-hidden="true">↪</span>
+                        Sign out
+                    </button>
+                </form>
+
+            </div>
+
+        </aside>
+
+
+        <!-- MAIN CONTENT -->
+        <main class="main-content">
+
+            <header class="topbar">
+
+                <div>
+                    <span class="eyebrow">YOUR WORKSPACE</span>
+                    <h1>Gesture Dashboard</h1>
+                </div>
+
+                <div class="camera-status" role="status" aria-live="polite">
+                    <span class="status-dot" id="status-dot"></span>
+                    <span id="camera-status">Connecting...</span>
+                </div>
+
+            </header>
+
+
+            <!-- WELCOME BANNER -->
+            <section class="welcome-banner">
+
+                <div>
+                    <span class="eyebrow">YOUR HANDS HAVE A VOICE</span>
+
+                    <h2>Hello, {{ name }}! ✨</h2>
+
+                    <p>
+                        Position your hand in front of the camera
+                        and start communicating.
+                    </p>
+                </div>
+
+                <div class="banner-symbol" aria-hidden="true">✋</div>
+
+            </section>
+
+
+            <!-- STATISTICS -->
+            <section class="stats-grid">
+
+                <div class="stat-card">
+                    <span class="stat-icon" aria-hidden="true">✋</span>
+                    <p>Hands detected</p>
+                    <h2 id="hand-count">0</h2>
+                    <small>Currently in frame</small>
+                </div>
+
+                <div class="stat-card">
+                    <span class="stat-icon" aria-hidden="true">◉</span>
+                    <p>Processing speed</p>
+                    <h2>
+                        <span id="fps">0</span>
+                        <small>FPS</small>
+                    </h2>
+                    <small>Real-time performance</small>
+                </div>
+
+                <div class="stat-card">
+                    <span class="stat-icon" aria-hidden="true">✦</span>
+                    <p>Current gesture</p>
+                    <h2 class="gesture-stat" id="gesture-stat">—</h2>
+                    <small>Latest recognition</small>
+                </div>
+
+            </section>
+
+
+            <!-- CAMERA AND GESTURE -->
+            <section class="workspace-grid">
+
+                <!-- CAMERA PANEL -->
+                <div class="panel camera-panel">
+
+                    <div class="panel-heading">
+
+                        <div>
+                            <span class="eyebrow">LIVE RECOGNITION</span>
+                            <h3>Camera feed</h3>
+                        </div>
+
+                        <span class="live-pill">
+                            <span aria-hidden="true"></span>
+                            LIVE
+                        </span>
+
+                    </div>
+
+                    <div class="camera-frame">
+
+                        <img
+                            src="{{ url_for('video_feed') }}"
+                            alt="Live hand gesture camera feed"
+                            id="camera-feed"
+                        >
+
+                        <div
+                            class="camera-overlay"
+                            id="camera-error"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            Starting camera...
+                        </div>
+
+                    </div>
+
+                    <p class="camera-hint">
+                        Keep your hand visible and well-lit for
+                        accurate recognition.
+                    </p>
+
+                </div>
+
+
+                <!-- RIGHT PANELS -->
+                <div class="right-panels">
+
+                    <!-- CURRENT GESTURE -->
+                    <div class="panel gesture-panel">
+
+                        <span class="eyebrow">RECOGNITION RESULT</span>
+
+                        <h3>Detected gesture</h3>
+
+                        <div class="gesture-display" id="gesture-display">
+                            <span aria-hidden="true">✋</span>
+                            <h2 id="current-gesture">NO GESTURE</h2>
+                        </div>
+
+                        <p id="gesture-description">
+                            Waiting for your next gesture...
+                        </p>
+
+                    </div>
+
+
+                    <!-- DETECTION HISTORY -->
+                    <div class="panel history-panel" id="history">
+
+                        <div class="panel-heading">
+
+                            <div>
+                                <span class="eyebrow">RECENT ACTIVITY</span>
+                                <h3>Detection history</h3>
+                            </div>
+
+                            <span class="history-icon" aria-hidden="true">◷</span>
+
+                        </div>
+
+                        <div id="history-list" class="history-list">
+                            <p class="empty-state">
+                                Your detected gestures will appear here.
+                            </p>
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- SUPPORTED GESTURES -->
+            <section class="panel supported-panel">
+
+                <div class="panel-heading">
+
+                    <div>
+                        <span class="eyebrow">EXPLORE</span>
+                        <h3>Supported gestures</h3>
+                    </div>
+
+                    <span class="gesture-count">10 gestures</span>
+
+                </div>
+
+                <div class="gesture-tags">
+                    <span>👍 LIKE</span>
+                    <span>👎 DISLIKE</span>
+                    <span>👌 OK</span>
+                    <span>✌️ PEACE</span>
+                    <span>🤙 CALL ME</span>
+                    <span>✋ STOP</span>
+                    <span>⬆ FORWARD</span>
+                    <span>⬅ LEFT</span>
+                    <span>➡ RIGHT</span>
+                    <span>🤟 I LOVE YOU</span>
+                </div>
+
+            </section>
+
+
+            <!-- FOOTER -->
+            <footer class="dashboard-footer">
+                <span>✦ HandSpeak</span>
+                <span>
+                    Making communication accessible, one gesture at a time.
+                </span>
+            </footer>
+
+        </main>
+
+    </div>
+
+</body>
+</html>
