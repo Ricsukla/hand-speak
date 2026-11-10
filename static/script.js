@@ -1,6 +1,7 @@
 
 document.addEventListener("DOMContentLoaded", () => {
 
+    // Dashboard elements
     const gestureElement = document.getElementById("current-gesture");
     const gestureStat = document.getElementById("gesture-stat");
     const handCount = document.getElementById("hand-count");
@@ -9,13 +10,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const cameraStatus = document.getElementById("camera-status");
     const statusDot = document.getElementById("status-dot");
     const cameraError = document.getElementById("camera-error");
+    const cameraFeed = document.getElementById("camera-feed");
 
     const historyList = document.getElementById("history-list");
     const gestureDescription = document.getElementById("gesture-description");
-    const cameraFeed = document.getElementById("camera-feed");
 
+    // Stop if this script is loaded on a page without the dashboard
     if (!gestureElement) return;
 
+    // Gesture descriptions
     const descriptions = {
         "LIKE": "A positive thumbs-up gesture detected.",
         "DISLIKE": "A thumbs-down gesture detected.",
@@ -30,28 +33,67 @@ document.addEventListener("DOMContentLoaded", () => {
         "NO GESTURE": "Waiting for your next gesture..."
     };
 
+    let previousHistory = "";
+    let isUpdating = false;
+
+    // Update camera connection indicator
+    function setCameraStatus(active, message = "") {
+
+        if (cameraStatus) {
+            cameraStatus.textContent = active
+                ? "Camera active"
+                : "Camera offline";
+        }
+
+        if (statusDot) {
+            statusDot.classList.toggle("offline", !active);
+        }
+
+        if (cameraError) {
+            if (active) {
+                cameraError.style.display = "none";
+            } else {
+                cameraError.textContent = message || "Waiting for camera...";
+                cameraError.style.display = "block";
+            }
+        }
+    }
+
+    // Update gesture history
     function updateHistory(history) {
 
-        historyList.innerHTML = "";
+        if (!historyList) return;
 
-        if (!history || history.length === 0) {
+        const safeHistory = Array.isArray(history) ? history : [];
+        const historyKey = JSON.stringify(safeHistory);
 
-            historyList.innerHTML =
-                '<p class="empty-state">Your detected gestures will appear here.</p>';
+        // Avoid rebuilding the list if nothing changed
+        if (historyKey === previousHistory) return;
 
+        previousHistory = historyKey;
+        historyList.replaceChildren();
+
+        if (safeHistory.length === 0) {
+
+            const emptyMessage = document.createElement("p");
+            emptyMessage.className = "empty-state";
+            emptyMessage.textContent =
+                "Your detected gestures will appear here.";
+
+            historyList.appendChild(emptyMessage);
             return;
         }
 
-        history.forEach(item => {
+        safeHistory.forEach((item) => {
 
             const row = document.createElement("div");
             row.className = "history-item";
 
             const gesture = document.createElement("strong");
-            gesture.textContent = item.gesture;
+            gesture.textContent = item.gesture || "Unknown gesture";
 
             const time = document.createElement("span");
-            time.textContent = item.time;
+            time.textContent = item.time || "";
 
             row.appendChild(gesture);
             row.appendChild(time);
@@ -60,12 +102,22 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // Fetch and update dashboard information
     async function updateDashboard() {
+
+        // Prevent overlapping requests
+        if (isUpdating) return;
+
+        isUpdating = true;
 
         try {
 
             const response = await fetch("/api/stats", {
-                cache: "no-store"
+                method: "GET",
+                cache: "no-store",
+                headers: {
+                    "Accept": "application/json"
+                }
             });
 
             if (!response.ok) {
@@ -74,56 +126,90 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const data = await response.json();
 
-            gestureElement.textContent = data.gesture;
-            gestureStat.textContent = data.gesture;
+            // Gesture information
+            const gesture = data.gesture || "NO GESTURE";
 
-            handCount.textContent = data.hands;
-            fpsElement.textContent = data.fps;
+            gestureElement.textContent = gesture;
 
-            gestureDescription.textContent =
-                descriptions[data.gesture] || "Gesture recognized.";
+            if (gestureStat) {
+                gestureStat.textContent = gesture;
+            }
 
+            if (gestureDescription) {
+                gestureDescription.textContent =
+                    descriptions[gesture] || "Gesture recognized.";
+            }
+
+            // Camera statistics
+            if (handCount) {
+                handCount.textContent = Number(data.hands) || 0;
+            }
+
+            if (fpsElement) {
+                fpsElement.textContent = (Number(data.fps) || 0).toFixed(1);
+            }
+
+            // Detection history
             updateHistory(data.history);
 
+            // Camera status
             if (data.active) {
-
-                cameraStatus.textContent = "Camera active";
-                statusDot.classList.remove("offline");
-
-                cameraError.style.display = "none";
-
+                setCameraStatus(true);
             } else {
-
-                cameraStatus.textContent = "Camera offline";
-                statusDot.classList.add("offline");
-
-                cameraError.textContent =
-                    data.error || "Waiting for camera...";
-
-                cameraError.style.display = "block";
+                setCameraStatus(false, data.error);
             }
 
         } catch (error) {
 
-            cameraStatus.textContent = "Connection error";
-            statusDot.classList.add("offline");
+            console.error("Dashboard update error:", error);
 
-            cameraError.textContent = "Unable to connect to camera.";
-            cameraError.style.display = "block";
+            setCameraStatus(
+                false,
+                "Unable to connect to the camera. Please check your connection."
+            );
+
+        } finally {
+
+            isUpdating = false;
 
         }
     }
 
-    cameraFeed.addEventListener("error", () => {
+    // Handle camera stream errors
+    if (cameraFeed) {
 
-        cameraError.textContent =
-            "Camera stream unavailable. Check webcam permissions and connection.";
+        cameraFeed.addEventListener("error", () => {
 
-        cameraError.style.display = "block";
-    });
+            if (cameraError) {
+                cameraError.textContent =
+                    "Camera stream unavailable. Check webcam permissions and connection.";
 
+                cameraError.style.display = "block";
+            }
+
+            if (cameraStatus) {
+                cameraStatus.textContent = "Stream unavailable";
+            }
+
+            if (statusDot) {
+                statusDot.classList.add("offline");
+            }
+
+        });
+
+        cameraFeed.addEventListener("load", () => {
+
+            if (cameraError) {
+                cameraError.style.display = "none";
+            }
+
+        });
+    }
+
+    // Initial dashboard update
     updateDashboard();
 
+    // Refresh dashboard statistics every second
     setInterval(updateDashboard, 1000);
 
 });
